@@ -259,3 +259,11 @@ class EmbeddingJob(Base):
         Index("ux_embedding_jobs_user_source", "user_id", "source_type", "source_id", unique=True),
         Index("ix_embedding_jobs_status", "status"),
     )
+
+class CommandRateLimit(Base):
+    __tablename__ = "command_rate_limits"
+
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
+    command: Mapped[str] = mapped_column(String(32), primary_key=True)
+
+    last_used_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())

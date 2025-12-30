@@ -5,6 +5,7 @@ import traceback
 
 from app.core.config import settings
 from app.db.session import AsyncSessionLocal
+
 from app.db.repositories.embeddings import (
     get_pending_jobs,
     mark_jobs_processing,
@@ -13,6 +14,9 @@ from app.db.repositories.embeddings import (
     mark_job_failed,
 )
 from app.integrations.openai_embeddings import embed_texts
+from app.core.logging import setup_logging
+setup_logging()
+
 
 
 async def worker_loop(poll_seconds: float = 2.0, batch_size: int = 10) -> None:

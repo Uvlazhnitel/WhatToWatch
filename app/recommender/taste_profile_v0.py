@@ -11,6 +11,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import WatchedFilm
 from app.db.repositories.taste_profile import upsert_taste_profile
 from app.integrations.tmdb import get_movie_details_payload
+from datetime import datetime, UTC
 
 
 @dataclass(frozen=True)
@@ -190,7 +191,7 @@ async def update_taste_profile_v0(
 
     weights_json = {
         "version": "v0",
-        "computed_at": datetime.utcnow().isoformat() + "Z",
+        "computed_at": datetime.now(UTC).isoformat().replace("+00:00", "Z"),
         "thresholds": {"like": like_threshold, "dislike": dislike_threshold},
         "source": {"rated_films_used": len(rated), "liked": len(liked), "disliked": len(disliked)},
         "likes": {

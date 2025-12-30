@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
 
 from aiogram import Router, F
@@ -8,48 +8,21 @@ from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
 import re
-from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from app.db.models import TasteProfile
 from app.db.repositories.taste_profile import set_avoids_json
-
-from __future__ import annotations
-
-from aiogram import Router
-from aiogram.filters import Command
-from aiogram.types import Message
-from sqlalchemy import select, func
-
-from app.db.session import AsyncSessionLocal
-from app.db.repositories.users import get_or_create_user
-from app.db.repositories.recommendations import create_recommendation, add_recommendation_item
-from app.bot.keyboards import rec_item_keyboard
-from app.integrations.tmdb import get_movie_details, get_movie_keywords
-
 from app.db.session import AsyncSessionLocal, AsyncSession
+from app.db.repositories.users import get_or_create_user
+from app.db.repositories.recommendations import create_recommendation, add_recommendation_item, set_item_status, upsert_feedback
 from app.db.repositories.pending import set_pending, get_pending, clear_pending
 from app.db.repositories.watched import upsert_watched
-from app.recommender.taste_profile_v0 import update_taste_profile_v0
-from app.db.repositories.recommendations import (
-    create_recommendation,
-    add_recommendation_item,
-    set_item_status,
-    upsert_feedback,
-)
-from app.integrations.tmdb import (
-    search_movie,
-    get_movie_details,
-    get_movie_keywords,
-    get_trending_movies,
-    TMDBError,
-)
+from app.db.repositories.rate_limit import check_and_touch
 from app.bot.keyboards import movie_pick_keyboard, rec_item_keyboard
+from app.integrations.tmdb import search_movie, get_movie_details, get_movie_keywords, TMDBError
 from app.bot.parsing import parse_rating_from_text, parse_title_and_year
-
-router = Router()
-from app.db.repositories.users import get_or_create_user  # Import the missing function
+from app.db.models import TasteProfile, WatchedFilm, TextEmbedding
 
 router = Router()
 
@@ -146,8 +119,13 @@ async def cmd_recommend(message: Message) -> None:
     async with AsyncSessionLocal() as session:
         user = await get_or_create_user(session, telegram_id=message.from_user.id)
 
+        # rate limit: не чаще 1 раза в минуту
+        allowed, retry = await check_and_touch(session, user.id, "recommend", interval_seconds=60)
+        if not allowed:
+            await message.answer(f"Чуть-чуть подожди 🙂 Можно снова через {retry} сек.")
+            return
+
         # --- Try v1 first ---
-        picks_v1 = []
         try:
             from app.recommender.v1 import recommend_v1
             picks_v1 = await recommend_v1(
@@ -158,12 +136,9 @@ async def cmd_recommend(message: Message) -> None:
                 seeds_limit=40,
             )
         except Exception:
-            # Если v1 не собрался/нет импорта/нет эмбеддингов — упадём на v0 ниже
             picks_v1 = []
 
         if picks_v1:
-            # LLM text layer (explanations + optional questions)
-            from app.db.models import TasteProfile, WatchedFilm, TextEmbedding
             from app.llm.text_tasks import generate_explanations, generate_evening_questions
             from app.llm.policy import should_ask_questions
             from app.db.repositories.recommendations_updates import set_item_explanation, set_recommendation_questions
@@ -173,7 +148,6 @@ async def cmd_recommend(message: Message) -> None:
             ).scalar_one_or_none()
             taste_summary = (profile.summary_text if profile and profile.summary_text else "").strip()
 
-            # decide if we should ask questions (deterministic)
             rated_count = (
                 await session.execute(
                     select(func.count()).select_from(WatchedFilm)
@@ -193,9 +167,7 @@ async def cmd_recommend(message: Message) -> None:
             ).scalar_one()
             coverage = float(have_vec) / max(1, len(cand_ids))
 
-            # Если в твоём pick есть sim_like — лучше используй его.
-            # Если нет — оставим нейтральное значение, чтобы policy работал.
-            avg_sim_like = 0.22
+            avg_sim_like = 0.22  # если у pick есть sim_like — лучше подставить реальное
 
             ask, signal = should_ask_questions(
                 rated_films_count=int(rated_count),
@@ -209,9 +181,9 @@ async def cmd_recommend(message: Message) -> None:
                 context={"mode": "v1", "count": len(picks_v1), "recent_days": 60, "llm_text": True},
             )
 
-            # create items first (so we can update explanation_shown)
+            # создаём items и собираем payload для LLM
             item_id_by_tmdb: dict[int, int] = {}
-            llm_items_payload = []
+            llm_items_payload: list[dict] = []
 
             for pos, p in enumerate(picks_v1, start=1):
                 item = await add_recommendation_item(
@@ -237,18 +209,20 @@ async def cmd_recommend(message: Message) -> None:
                     "score": float(p.score),
                 })
 
-            # optional evening questions
+            # вопросы (опционально)
             if ask:
                 try:
                     qout = generate_evening_questions({"taste_summary": taste_summary, "signal": signal})
                     if qout.questions:
                         await set_recommendation_questions(session, rec.id, qout.questions)
-                        await message.answer("Пара коротких вопросов, чтобы точнее попасть сегодня:\n- " + "\n- ".join(qout.questions))
+                        await message.answer(
+                            "Пара коротких вопросов, чтобы точнее попасть сегодня:\n- " +
+                            "\n- ".join(qout.questions)
+                        )
                 except Exception:
-                    # молча, вопросы не критичны
                     pass
 
-            # explanations (single call for all items)
+            # объяснения (один LLM-вызов)
             explanations_map: dict[int, str] = {}
             try:
                 out = generate_explanations({"taste_summary": taste_summary, "items": llm_items_payload})
@@ -280,13 +254,13 @@ async def cmd_recommend(message: Message) -> None:
                 await message.answer(text, reply_markup=rec_item_keyboard(item_id_by_tmdb[p.tmdb_id], p.tmdb_id).as_markup())
             return
 
-        # --- Fallback v0 (your original) ---
+        # --- Fallback v0 ---
         from app.recommender.v0 import recommend_v0
 
         picks = await recommend_v0(
             session=session,
             user_id=user.id,
-            count=3,  # или 5
+            count=3,
             recent_days=60,
             seeds_limit=40,
         )
@@ -295,7 +269,7 @@ async def cmd_recommend(message: Message) -> None:
             await message.answer(
                 "Пока не могу собрать рекомендации (мало данных или всё отфильтровалось).\n"
                 "Попробуй сначала импортировать Letterboxd и/или добавить пару оценок через /review.\n"
-                "Для v1 ещё нужны эмбеддинги (запусти backfill + embedding_worker)."
+                "Для v1 ещё нужны эмбеддинги (backfill + embedding_worker)."
             )
             return
 
@@ -328,12 +302,10 @@ async def cmd_recommend(message: Message) -> None:
                 f"{details.title} ({details.year})\n"
                 f"Runtime: {details.runtime} мин\n"
                 f"Genres: {', '.join(details.genres) if details.genres else '—'}\n"
-                f"Keywords: {kw_preview}\n\n"
-                "Выбор:"
+                f"Keywords: {kw_preview}\n"
             )
             await message.answer(text, reply_markup=rec_item_keyboard(item.id, p.tmdb_id).as_markup())
 
-from aiogram.filters import Command
 
 @router.message(Command("myid"))
 async def cmd_myid(message: Message) -> None:

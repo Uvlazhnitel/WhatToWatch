@@ -325,3 +325,17 @@ async def get_movie_details_payload(session: AsyncSession, tmdb_id: int) -> dict
         await _upsert_cache(session, TmdbMovieDetailsCache, tmdb_id, data)
         return data
     return cached
+
+async def get_movie_keywords_payload(session, tmdb_id: int) -> dict:
+    # session оставляем в сигнатуре для совместимости (и будущего кеша),
+    # но здесь можно напрямую сходить в TMDB (в тестах будет замокано).
+    return await _tmdb_get(f"/movie/{tmdb_id}/keywords")
+
+
+async def get_movie_similar_payload(session, tmdb_id: int) -> dict:
+    # тесты ожидают сигнатуру (session, tmdb_id) без page
+    return await _tmdb_get(f"/movie/{tmdb_id}/similar", params={"page": 1})
+
+
+async def get_movie_recommendations_payload(session, tmdb_id: int) -> dict:
+    return await _tmdb_get(f"/movie/{tmdb_id}/recommendations", params={"page": 1})

@@ -4,6 +4,8 @@ from aiogram import Bot, Dispatcher
 
 from app.core.config import settings
 from app.bot.router import router
+from app.core.logging import setup_logging
+setup_logging()
 
 
 async def main() -> None:
