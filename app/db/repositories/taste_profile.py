@@ -5,6 +5,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import TasteProfile
+from sqlalchemy import update
 
 
 async def get_taste_profile(session: AsyncSession, user_id: int) -> TasteProfile | None:
@@ -38,4 +39,12 @@ async def upsert_taste_profile(
     if avoids_json is not None:
         profile.avoids_json = avoids_json
     profile.updated_at = now
+    await session.commit()
+
+async def set_avoids_json(session: AsyncSession, user_id: int, avoids_json: dict) -> None:
+    profile = await get_taste_profile(session, user_id)
+    if profile is None:
+        await upsert_taste_profile(session, user_id, summary_text="", weights_json={"version":"v0"}, avoids_json=avoids_json)
+        return
+    profile.avoids_json = avoids_json
     await session.commit()
