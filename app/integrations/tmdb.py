@@ -284,3 +284,10 @@ def _parse_candidate_list(results: Any) -> list[MovieCandidate]:
             )
         )
     return candidates
+
+async def get_trending_movies(time_window: str = "day", page: int = 1) -> list[MovieCandidate]:
+
+    if time_window not in ("day", "week"):
+        time_window = "day"
+    data = await _tmdb_get(f"/trending/movie/{time_window}", params={"page": page})
+    return _parse_candidate_list(data.get("results", []))
