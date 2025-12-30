@@ -167,3 +167,28 @@ class TmdbMovieKeywordsCache(Base):
     __table_args__ = (
         Index("ix_tmdb_keywords_expires", "expires_at"),
     )
+
+class PendingAction(Base):
+    __tablename__ = "pending_actions"
+
+    # 1 активное ожидание на пользователя
+    user_id: Mapped[int] = mapped_column(
+        ForeignKey("users.id", ondelete="CASCADE"),
+        primary_key=True,
+    )
+
+    # awaiting_movie_query | awaiting_movie_pick | awaiting_review | awaiting_rating
+    action_type: Mapped[str] = mapped_column(String(64), nullable=False)
+
+    # любая полезная нагрузка (tmdb_id, rec_item_id, draft_text и т.п.)
+    payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "action_type IN ('awaiting_movie_query','awaiting_movie_pick','awaiting_review','awaiting_rating')",
+            name="chk_pending_action_type",
+        ),
+    )

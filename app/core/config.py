@@ -11,5 +11,8 @@ class Settings(BaseSettings):
     tmdb_base_url: str = "https://api.themoviedb.org/3"
     tmdb_language: str = "en-US"
 
+    telegram_bot_token: str
+
+
 
 settings = Settings()
