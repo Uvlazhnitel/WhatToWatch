@@ -7,6 +7,15 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 
+import re
+from datetime import datetime, timezone
+
+from sqlalchemy import select
+
+from app.db.models import TasteProfile
+from app.db.repositories.taste_profile import set_avoids_json
+
+
 from app.db.session import AsyncSessionLocal, AsyncSession
 from app.db.repositories.pending import set_pending, get_pending, clear_pending
 from app.db.repositories.watched import upsert_watched
@@ -329,49 +338,6 @@ async def handle_text(message: Message) -> None:
             await message.answer("Выбери вариант кнопкой выше или /cancel.")
             return
 
-@router.message(Command("avoid"))
-async def cmd_avoid(message: Message) -> None:
-    if message.from_user is None or message.text is None:
-        return
-
-    raw = message.text.replace("/avoid", "", 1).strip()
-    if not raw:
-        await message.answer("Используй: /avoid <описание темы>\nНапример: /avoid офисная нью-йоркская корпоративная тема")
-        return
-
-    # простое выделение keywords: слова >=4 символов, первые 8
-    words = [w.lower() for w in re.findall(r"[a-zA-Zа-яА-ЯёЁ]+", raw) if len(w) >= 4]
-    keywords = words[:8] if words else [raw.lower()[:30]]
-
-    async with AsyncSessionLocal() as session:
-        user = await get_or_create_user(session, telegram_id=message.from_user.id)
-        profile = (await session.execute(select(TasteProfile).where(TasteProfile.user_id == user.id))).scalar_one_or_none()
-
-        avoids = (profile.avoids_json if profile else {}) or {}
-        if not isinstance(avoids, dict):
-            avoids = {}
-
-        patterns = avoids.get("patterns", [])
-        if not isinstance(patterns, list):
-            patterns = []
-
-        pid = f"p_{int(datetime.now(timezone.utc).timestamp())}"
-        patterns.append({
-            "id": pid,
-            "label": raw,
-            "keywords": keywords,
-            "weight": -0.35,
-            "confidence": 0.7,
-            "cooldown_days": 14,
-            "last_triggered": None
-        })
-        avoids["version"] = "v1"
-        avoids["patterns"] = patterns
-
-        await set_avoids_json(session, user.id, avoids)
-
-    await message.answer(f"Ок ✅ добавил мягкое избегание: {raw}\nKeywords: {', '.join(keywords)}")
-
 async def _save_review(
     session: AsyncSession,
     telegram_id: int,
@@ -476,3 +442,45 @@ async def _save_review(
             dimensions=settings.openai_embed_dimensions,
         )
 
+@router.message(Command("avoid"))
+async def cmd_avoid(message: Message) -> None:
+    if message.from_user is None or message.text is None:
+        return
+
+    raw = message.text.replace("/avoid", "", 1).strip()
+    if not raw:
+        await message.answer("Используй: /avoid <описание темы>\nНапример: /avoid офисная нью-йоркская корпоративная тема")
+        return
+
+    # простое выделение keywords: слова >=4 символов, первые 8
+    words = [w.lower() for w in re.findall(r"[a-zA-Zа-яА-ЯёЁ]+", raw) if len(w) >= 4]
+    keywords = words[:8] if words else [raw.lower()[:30]]
+
+    async with AsyncSessionLocal() as session:
+        user = await get_or_create_user(session, telegram_id=message.from_user.id)
+        profile = (await session.execute(select(TasteProfile).where(TasteProfile.user_id == user.id))).scalar_one_or_none()
+
+        avoids = (profile.avoids_json if profile else {}) or {}
+        if not isinstance(avoids, dict):
+            avoids = {}
+
+        patterns = avoids.get("patterns", [])
+        if not isinstance(patterns, list):
+            patterns = []
+
+        pid = f"p_{int(datetime.now(timezone.utc).timestamp())}"
+        patterns.append({
+            "id": pid,
+            "label": raw,
+            "keywords": keywords,
+            "weight": -0.35,
+            "confidence": 0.7,
+            "cooldown_days": 14,
+            "last_triggered": None
+        })
+        avoids["version"] = "v1"
+        avoids["patterns"] = patterns
+
+        await set_avoids_json(session, user.id, avoids)
+
+    await message.answer(f"Ок ✅ добавил мягкое избегание: {raw}\nKeywords: {', '.join(keywords)}")
