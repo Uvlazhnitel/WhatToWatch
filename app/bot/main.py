@@ -1,11 +1,10 @@
-from mailbox import Message
-from dotenv import load_dotenv
+import asyncio
 import os
-from aiogram import Bot, Dispatcher
+
+from dotenv import load_dotenv
+from aiogram import Bot, Dispatcher, F
 from aiogram.filters import CommandStart
 from aiogram.types import Message as AiogramMessage
-from aiogram import F
-import asyncio
 
 
 load_dotenv()
