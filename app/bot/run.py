@@ -5,11 +5,14 @@ from aiogram import Bot, Dispatcher
 from app.core.config import settings
 from app.bot.router import router
 from app.core.logging import setup_logging
+from aiogram.client.session.aiohttp import AiohttpSession
+
 setup_logging()
 
 
 async def main() -> None:
-    bot = Bot(token=settings.telegram_bot_token)
+    session = AiohttpSession(timeout=60) 
+    bot = Bot(token=settings.telegram_bot_token, session=session)
     dp = Dispatcher()
     dp.include_router(router)
     await dp.start_polling(bot)

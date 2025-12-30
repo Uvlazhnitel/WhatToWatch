@@ -1,0 +1,15 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+DB_CONTAINER="movie_agent_db"
+DB_NAME="movie_agent"
+DB_USER="movie_agent"
+
+TS=$(date +"%Y%m%d_%H%M%S")
+OUT="db_snapshots/backup_${TS}.sql"
+
+mkdir -p db_snapshots
+docker exec -t "$DB_CONTAINER" pg_dump -U "$DB_USER" -d "$DB_NAME" > "$OUT"
+
+echo "✅ Snapshot saved: $OUT"
+

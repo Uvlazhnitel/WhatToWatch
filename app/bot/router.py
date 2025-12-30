@@ -6,6 +6,7 @@ from zoneinfo import ZoneInfo
 from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
+from app.bot.safe_send import safe_answer
 
 import re
 
@@ -427,7 +428,7 @@ async def handle_text(message: Message) -> None:
 
             await _save_review(session, user.telegram_id, tmdb_id, mode, rating, review_text, payload.get("item_id"))
             await clear_pending(session, user.id)
-            await message.answer("Принято ✅")
+            await safe_answer(message, "Принято ✅")
             return
 
         # 3) Ждём только оценку (текст уже есть)
@@ -450,7 +451,7 @@ async def handle_text(message: Message) -> None:
 
             await _save_review(session, user.telegram_id, tmdb_id, mode, rating, combined_review or None, payload.get("item_id"))
             await clear_pending(session, user.id)
-            await message.answer("Принято ✅")
+            await safe_answer(message, "Принято ✅")
             return
 
         # 4) awaiting_movie_pick — пользователь должен нажать кнопку
