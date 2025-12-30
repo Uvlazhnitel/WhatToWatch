@@ -1,3 +1,23 @@
+"""
+Embedding Worker
+
+Background worker that processes embedding generation jobs from the queue.
+Fetches pending jobs in batches, calls the OpenAI embeddings API, and stores
+the resulting vectors in the database.
+
+The worker:
+1. Polls the database for pending embedding jobs
+2. Batches jobs together for efficient API calls
+3. Generates embeddings using OpenAI's embedding model
+4. Stores embeddings in PostgreSQL with pgvector
+5. Handles failures with appropriate error logging
+
+Run with:
+    python -m app.jobs.embedding_worker
+
+This should run continuously alongside the bot for optimal performance.
+"""
+
 from __future__ import annotations
 
 import asyncio

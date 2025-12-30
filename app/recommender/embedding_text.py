@@ -1,3 +1,18 @@
+"""
+Embedding Text Builders
+
+Functions to construct text representations for embedding generation.
+These functions format data into natural language text that can be embedded
+to capture semantic meaning.
+
+Two main builders:
+- build_review_text: Formats user reviews with ratings
+- build_film_meta_text: Formats movie metadata (title, genres, keywords, overview)
+
+The generated text is optimized for semantic similarity search, focusing on
+the aspects that matter most for recommendations.
+"""
+
 from __future__ import annotations
 
 from app.integrations.tmdb import get_movie_details, get_movie_keywords

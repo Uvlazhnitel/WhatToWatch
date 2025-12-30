@@ -1,3 +1,19 @@
+"""
+TMDB (The Movie Database) Integration
+
+Provides functions to interact with the TMDB API for movie data:
+- Search movies by title and year
+- Get detailed movie information
+- Get movie keywords
+- Get similar and recommended movies
+- Cache responses to minimize API calls
+
+All functions include caching in PostgreSQL to respect rate limits and improve
+performance. Cache entries expire after 30 days by default.
+
+API documentation: https://developers.themoviedb.org/3
+"""
+
 from __future__ import annotations
 
 from dataclasses import dataclass

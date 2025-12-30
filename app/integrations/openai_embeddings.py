@@ -1,3 +1,21 @@
+"""
+OpenAI Embeddings Integration
+
+Wrapper for OpenAI's embeddings API with batching support.
+Generates vector embeddings for text using OpenAI's text-embedding models.
+
+Features:
+- Batch processing for efficiency
+- Configurable model and dimensions
+- Error handling for empty/invalid inputs
+- Returns embeddings in the same order as input texts
+
+Used by the embedding_worker to generate semantic vectors for:
+- Movie metadata
+- User reviews
+- Taste profiles
+"""
+
 from __future__ import annotations
 
 from openai import OpenAI
