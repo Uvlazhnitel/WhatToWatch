@@ -341,25 +341,40 @@ async def _save_review(
 ) -> None:
     """
     Сохраняем:
-    - если mode=agent: feedback + status watched + watched_films(source=agent)
-    - если mode=manual: watched_films(source=manual)
+    - если mode=agent: feedback + status watched + watched_films(source=agent, rating, review)
+    - если mode=manual: watched_films(source=manual, rating, review)
+    После этого:
+    - пересчитываем taste_profile v0
+    - ставим jobs на эмбеддинги (review / film_meta / profile)
     """
-    # получим user + timezone
-    from app.db.repositories.users import get_or_create_user  # локально, чтобы избежать циклов
+    # локальные импорты, чтобы избежать циклов
+    from app.db.repositories.users import get_or_create_user
+    from app.recommender.taste_profile_v0 import update_taste_profile_v0
+    from app.db.repositories.taste_profile import get_taste_profile
+    from app.db.repositories.embeddings import enqueue_embedding_job
+    from app.recommender.embedding_texts import build_review_text, build_film_meta_text
+    from app.core.config import settings
 
     user = await get_or_create_user(session, telegram_id=telegram_id)
     watched_date = today_in_tz(user.timezone)
 
     details = await get_movie_details(session, tmdb_id)
 
+    # 1) feedback + status, если это отзыв на рекомендацию
     if mode == "agent" and item_id is not None:
-        await upsert_feedback(session, recommendation_item_id=int(item_id), rating=rating, review=review_text)
+        await upsert_feedback(
+            session,
+            recommendation_item_id=int(item_id),
+            rating=rating,
+            review=review_text,
+        )
         await set_item_status(session, int(item_id), "watched")
         source = "agent"
     else:
         source = "manual"
 
-    await upsert_watched(
+    # 2) upsert в watched_films и получаем watched_id (нужен для review embedding)
+    watched_id = await upsert_watched(
         session=session,
         user_id=user.id,
         tmdb_id=tmdb_id,
@@ -371,6 +386,51 @@ async def _save_review(
         source=source,
     )
 
+    # 3) пересчитать taste_profile v0 (жанры/десятилетия/страны)
     await update_taste_profile_v0(session=session, user_id=user.id)
 
+    # 4) enqueue embedding jobs
+    # 4.1 review embedding (самое важное)
+    review_embed_text = await build_review_text(
+        title=details.title,
+        year=details.year,
+        rating=rating,
+        review=review_text,
+    )
+    if review_embed_text.strip():
+        await enqueue_embedding_job(
+            session=session,
+            user_id=user.id,
+            source_type="review",
+            source_id=int(watched_id),
+            content_text=review_embed_text,
+            model=settings.openai_embed_model,
+            dimensions=settings.openai_embed_dimensions,
+        )
+
+    # 4.2 film_meta embedding (overview + keywords + genres)
+    film_meta_text = await build_film_meta_text(session, tmdb_id)
+    if film_meta_text.strip():
+        await enqueue_embedding_job(
+            session=session,
+            user_id=user.id,
+            source_type="film_meta",
+            source_id=int(tmdb_id),
+            content_text=film_meta_text,
+            model=settings.openai_embed_model,
+            dimensions=settings.openai_embed_dimensions,
+        )
+
+    # 4.3 profile embedding (опционально, но полезно)
+    profile = await get_taste_profile(session, user.id)
+    if profile and profile.summary_text and profile.summary_text.strip():
+        await enqueue_embedding_job(
+            session=session,
+            user_id=user.id,
+            source_type="profile",
+            source_id=int(user.id),
+            content_text=profile.summary_text.strip(),
+            model=settings.openai_embed_model,
+            dimensions=settings.openai_embed_dimensions,
+        )
 

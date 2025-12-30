@@ -35,7 +35,7 @@ async def upsert_watched(
     review: str | None,
     watched_date: date | None,
     source: str,
-) -> None:
+) -> int:
 
     existing = await get_existing_watched(session, user_id, tmdb_id, watched_date)
 
@@ -52,7 +52,8 @@ async def upsert_watched(
         )
         session.add(wf)
         await session.commit()
-        return
+        await session.refresh(wf)
+        return int(wf.id)
 
     existing.title = title or existing.title
     existing.year = year if year is not None else existing.year
@@ -65,3 +66,4 @@ async def upsert_watched(
     existing.source = source
 
     await session.commit()
+    return int(existing.id)
