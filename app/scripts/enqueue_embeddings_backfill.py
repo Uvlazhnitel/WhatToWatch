@@ -1,3 +1,23 @@
+"""
+Embeddings Backfill Script
+
+This script enqueues embedding generation jobs for existing watched films and user profiles.
+It's useful for populating embeddings after importing Letterboxd data or when adding the
+embedding feature to an existing database.
+
+The script creates embedding jobs for:
+- Film metadata (overview, keywords, genres)
+- User reviews (rating + review text)
+- User taste profile summary
+
+Usage:
+    python -m app.scripts.enqueue_embeddings_backfill \\
+        --telegram-id YOUR_TELEGRAM_ID \\
+        --limit 500
+
+The embedding_worker must be running to process these jobs.
+"""
+
 from __future__ import annotations
 
 import argparse

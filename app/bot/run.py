@@ -1,3 +1,13 @@
+"""
+Telegram Bot Runner
+
+Main entry point for the WhatToWatch Telegram bot.
+Initializes logging, creates the bot instance, and starts polling for updates.
+
+Run with:
+    python -m app.bot.run
+"""
+
 import asyncio
 
 from aiogram import Bot, Dispatcher

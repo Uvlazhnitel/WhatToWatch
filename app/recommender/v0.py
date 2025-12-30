@@ -1,3 +1,21 @@
+"""
+Recommendation Engine v0
+
+Traditional recommendation algorithm based on collaborative filtering concepts.
+Uses genre preferences, country preferences, and decade preferences derived from
+user's watched films and ratings.
+
+This is the fallback recommendation engine when v1 (vector-based) doesn't have
+sufficient embeddings. It provides three types of recommendations:
+- Safe: High overlap with user preferences
+- Adjacent: Moderate overlap, explores nearby tastes
+- Wildcard: Low overlap, introduces variety
+
+The algorithm uses TMDB's "similar" and "recommendations" endpoints, scoring
+candidates based on quality, genre overlap, and applying penalties for recency
+and avoidance patterns.
+"""
+
 from __future__ import annotations
 
 import asyncio

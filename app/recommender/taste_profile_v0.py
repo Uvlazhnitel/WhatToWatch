@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import asyncio
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, UTC
 from typing import Any
 
 from sqlalchemy import select
@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.db.models import WatchedFilm
 from app.db.repositories.taste_profile import upsert_taste_profile
 from app.integrations.tmdb import get_movie_details_payload
-from datetime import datetime, UTC
 
 
 @dataclass(frozen=True)

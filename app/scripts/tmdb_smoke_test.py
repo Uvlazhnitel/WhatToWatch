@@ -1,3 +1,18 @@
+"""
+TMDB API Smoke Test
+
+A simple diagnostic script to verify TMDB API integration is working correctly.
+Tests search, movie details, and keywords endpoints.
+
+This is useful for:
+- Verifying TMDB API key is valid
+- Checking network connectivity to TMDB
+- Debugging TMDB integration issues
+
+Usage:
+    python -m app.scripts.tmdb_smoke_test
+"""
+
 import asyncio
 
 from sqlalchemy.ext.asyncio import AsyncSession

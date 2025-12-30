@@ -1,3 +1,26 @@
+"""
+Reset User Data Script
+
+Resets a user's data to the state immediately after Letterboxd import, removing all
+bot-generated or manually-added data while preserving imported Letterboxd history.
+
+This script removes:
+- Agent recommendations and their items
+- User feedback on recommendations
+- Watched films from "agent" or "manual" sources
+- Pending actions
+- Current taste profile (will be rebuilt from Letterboxd data only)
+
+The taste profile is then regenerated based solely on Letterboxd data.
+
+Usage:
+    python -m app.scripts.reset_to_import \\
+        --telegram-id YOUR_TELEGRAM_ID \\
+        --dry-run  # Optional: preview changes without applying them
+
+WARNING: This is a destructive operation. Use --dry-run first to verify what will be deleted.
+"""
+
 from __future__ import annotations
 
 import argparse
