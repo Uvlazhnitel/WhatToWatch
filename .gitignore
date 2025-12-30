@@ -188,3 +188,27 @@ $RECYCLE.BIN/
 *.bak
 *.tmp
 *.temp
+
+.dmypy.json
+dmypy.json
+
+# Pyre type checker
+.pyre/
+
+# pytype static type analyzer
+.pytype/
+
+# Cython debug symbols
+cython_debug/
+
+# VS Code settings
+.vscode/
+
+# macOS files
+.DS_Store
+.AppleDouble
+.LSOverride
+
+# Custom files
+watched_with_ratings.csv
+unresolved.csv
