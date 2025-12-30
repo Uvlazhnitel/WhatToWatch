@@ -11,7 +11,7 @@ import re
 
 from sqlalchemy import select, func
 
-from app.db.models import TasteProfile
+from app.db.models import TasteProfile, WatchedFilm, TextEmbedding
 from app.db.repositories.taste_profile import set_avoids_json
 from app.db.session import AsyncSessionLocal, AsyncSession
 from app.db.repositories.users import get_or_create_user
@@ -22,7 +22,6 @@ from app.db.repositories.rate_limit import check_and_touch
 from app.bot.keyboards import movie_pick_keyboard, rec_item_keyboard
 from app.integrations.tmdb import search_movie, get_movie_details, get_movie_keywords, TMDBError
 from app.bot.parsing import parse_rating_from_text, parse_title_and_year
-from app.db.models import TasteProfile, WatchedFilm, TextEmbedding
 
 router = Router()
 
@@ -476,7 +475,6 @@ async def _save_review(
     - ставим jobs на эмбеддинги (review / film_meta / profile)
     """
     # локальные импорты, чтобы избежать циклов
-    from app.db.repositories.users import get_or_create_user
     from app.recommender.taste_profile_v0 import update_taste_profile_v0
     from app.db.repositories.taste_profile import get_taste_profile
     from app.db.repositories.embeddings import enqueue_embedding_job

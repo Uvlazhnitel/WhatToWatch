@@ -1,3 +1,14 @@
+"""
+Text Parsing Utilities
+
+Utilities for parsing user input in the Telegram bot, including:
+- Rating extraction from review text (supports multiple formats)
+- Movie title and year parsing
+
+These parsers handle natural language input and support common formats
+like "4.5/5", "4/5", "4.5", "Alien 1979", "Alien (1979)", etc.
+"""
+
 from __future__ import annotations
 
 import re

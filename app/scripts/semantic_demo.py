@@ -1,3 +1,23 @@
+"""
+Semantic Similarity Demo
+
+Demonstrates the vector similarity search capabilities by finding movies similar to a user's
+favorite films using cosine similarity on embeddings.
+
+This script:
+1. Finds one of your highest-rated movies (rating >= 4.0)
+2. Retrieves its film_meta embedding
+3. Searches for similar movies using vector similarity
+4. Displays results ranked by similarity
+
+Usage:
+    python -m app.scripts.semantic_demo \\
+        --telegram-id YOUR_TELEGRAM_ID \\
+        --limit 10
+
+Requires embeddings to be generated first (run enqueue_embeddings_backfill and embedding_worker).
+"""
+
 from __future__ import annotations
 
 import argparse

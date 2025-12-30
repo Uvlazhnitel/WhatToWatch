@@ -1,3 +1,26 @@
+"""
+Letterboxd CSV Import Script
+
+This script imports movie viewing history from Letterboxd CSV exports into the WhatToWatch database.
+It automatically matches movies with TMDB entries, handles ambiguous matches, and supports manual
+overrides for problematic entries.
+
+Features:
+- Automatic TMDB matching with confidence scoring
+- Duplicate detection and prevention
+- Support for custom overrides via CSV
+- Unresolved entries logged for manual review
+- Rate limiting to respect TMDB API limits
+
+Usage:
+    python -m app.scripts.import_letterboxd \\
+        --csv path/to/diary.csv \\
+        --telegram-id YOUR_TELEGRAM_ID \\
+        --unresolved-out unresolved.csv
+
+For more options, run with --help flag.
+"""
+
 from __future__ import annotations
 
 import argparse

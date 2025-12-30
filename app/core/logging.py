@@ -1,3 +1,11 @@
+"""
+Logging Configuration
+
+Configures application-wide logging with appropriate levels and formats.
+Suppresses verbose output from third-party libraries while maintaining
+visibility of application logs.
+"""
+
 from __future__ import annotations
 
 import logging
