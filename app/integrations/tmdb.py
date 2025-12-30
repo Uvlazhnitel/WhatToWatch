@@ -51,6 +51,8 @@ class MovieCandidate:
     year: Optional[int]
     popularity: float | None = None
     vote_average: float | None = None
+    genre_ids: list[int] | None = None
+    original_language: str | None = None
 
 
 @dataclass(frozen=True)
@@ -136,6 +138,16 @@ async def search_movie(
                 continue
 
             y = _extract_year(r.get("release_date"))
+            genre_ids_raw = r.get("genre_ids")
+            genre_ids: list[int] | None = None
+            if isinstance(genre_ids_raw, list):
+                genre_ids = []
+                for g in genre_ids_raw:
+                    try:
+                        genre_ids.append(int(g))
+                    except Exception:
+                        pass
+
             candidates.append(
                 MovieCandidate(
                     tmdb_id=tmdb_id,
@@ -143,6 +155,8 @@ async def search_movie(
                     year=y,
                     popularity=float(r.get("popularity")) if r.get("popularity") is not None else None,
                     vote_average=float(r.get("vote_average")) if r.get("vote_average") is not None else None,
+                    genre_ids=genre_ids,
+                    original_language=str(r.get("original_language")) if r.get("original_language") else None,
                 )
             )
 
@@ -274,6 +288,16 @@ def _parse_candidate_list(results: Any) -> list[MovieCandidate]:
             continue
 
         y = _extract_year(r.get("release_date"))
+        genre_ids_raw = r.get("genre_ids")
+        genre_ids: list[int] | None = None
+        if isinstance(genre_ids_raw, list):
+            genre_ids = []
+            for g in genre_ids_raw:
+                try:
+                    genre_ids.append(int(g))
+                except Exception:
+                    pass
+
         candidates.append(
             MovieCandidate(
                 tmdb_id=tmdb_id,
@@ -281,6 +305,8 @@ def _parse_candidate_list(results: Any) -> list[MovieCandidate]:
                 year=y,
                 popularity=float(r.get("popularity")) if r.get("popularity") is not None else None,
                 vote_average=float(r.get("vote_average")) if r.get("vote_average") is not None else None,
+                genre_ids=genre_ids,
+                original_language=str(r.get("original_language")) if r.get("original_language") else None,
             )
         )
     return candidates
@@ -291,3 +317,11 @@ async def get_trending_movies(time_window: str = "day", page: int = 1) -> list[M
         time_window = "day"
     data = await _tmdb_get(f"/trending/movie/{time_window}", params={"page": page})
     return _parse_candidate_list(data.get("results", []))
+
+async def get_movie_details_payload(session: AsyncSession, tmdb_id: int) -> dict[str, Any]:
+    cached = await _get_cached(session, TmdbMovieDetailsCache, tmdb_id)
+    if cached is None:
+        data = await _tmdb_get(f"/movie/{tmdb_id}")
+        await _upsert_cache(session, TmdbMovieDetailsCache, tmdb_id, data)
+        return data
+    return cached

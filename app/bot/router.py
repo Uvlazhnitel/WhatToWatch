@@ -123,42 +123,65 @@ async def cmd_recommend(message: Message) -> None:
     async with AsyncSessionLocal() as session:
         user = await get_or_create_user(session, telegram_id=message.from_user.id)
 
-        # Демка: берём trending 3 фильма
-        try:
-            trending = await get_trending_movies("day", page=1)
-        except TMDBError as e:
-            await message.answer(f"TMDB ошибка: {e}")
+        # v0 рекомендации
+        from app.recommender.v0 import recommend_v0
+
+        picks = await recommend_v0(
+            session=session,
+            user_id=user.id,
+            count=3,          # можешь поставить 5
+            recent_days=60,
+            seeds_limit=40,
+        )
+
+        if not picks:
+            await message.answer(
+                "Пока не могу собрать рекомендации (мало данных или всё отфильтровалось).\n"
+                "Попробуй сначала импортировать Letterboxd и/или добавить пару оценок через /review."
+            )
             return
 
-        picks = trending[:3]
-        rec = await create_recommendation(session, user.id, context={"mode": "demo_trending", "count": len(picks)})
+        rec = await create_recommendation(
+            session,
+            user.id,
+            context={"mode": "v0", "count": len(picks), "recent_days": 60},
+        )
 
-        await message.answer("Вот 3 демо-рекомендации (trending). Позже заменим на умный подбор 👇")
+        await message.answer("Вот рекомендации на вечер 👇 (v0, без векторной памяти пока)")
 
-        strategies = ["safe", "adjacent", "wildcard"]
-        for i, c in enumerate(picks, start=1):
+        for i, p in enumerate(picks, start=1):
             item = await add_recommendation_item(
                 session=session,
                 recommendation_id=rec.id,
-                tmdb_id=c.tmdb_id,
+                tmdb_id=p.tmdb_id,
                 position=i,
-                strategy=strategies[i - 1],
-                explanation_shown=None,
+                strategy=p.strategy,
+                explanation_shown=f"{p.strategy}: {p.reason}",
             )
 
-            details = await get_movie_details(session, c.tmdb_id)
-            keywords = await get_movie_keywords(session, c.tmdb_id)
+            details = await get_movie_details(session, p.tmdb_id)
+            keywords = await get_movie_keywords(session, p.tmdb_id)
             kw_preview = ", ".join(keywords[:6]) if keywords else "—"
 
+            label = {"safe": "🎯 Попадание", "adjacent": "🧭 Рядом, но иначе", "wildcard": "🎲 Эксперимент"}.get(p.strategy, p.strategy)
+
             text = (
-                f"{i}) {details.title} ({details.year})\n"
+                f"{i}) {label}\n"
+                f"{details.title} ({details.year})\n"
                 f"Runtime: {details.runtime} мин\n"
                 f"Genres: {', '.join(details.genres) if details.genres else '—'}\n"
                 f"Keywords: {kw_preview}\n\n"
-                "Нажми кнопку:"
+                "Выбор:"
             )
-            await message.answer(text, reply_markup=rec_item_keyboard(item.id, c.tmdb_id).as_markup())
+            await message.answer(text, reply_markup=rec_item_keyboard(item.id, p.tmdb_id).as_markup())
 
+from aiogram.filters import Command
+
+@router.message(Command("myid"))
+async def cmd_myid(message: Message) -> None:
+    if message.from_user is None:
+        return
+    await message.answer(f"Твой telegram id: {message.from_user.id}")
 
 @router.callback_query(F.data.startswith("skip:"))
 async def cb_skip(callback: CallbackQuery) -> None:
