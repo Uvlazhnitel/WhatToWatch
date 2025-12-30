@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 from dataclasses import dataclass
 from typing import Optional
+from sqlalchemy import select
+from app.db.models import TasteProfile
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -208,6 +210,23 @@ def _pick_wildcard(
             best = RecPick(c.tmdb_id, "wildcard", score, reason=f"genre_match={g:.3f}, quality={q:.3f}, bonus={diversity_bonus:.2f}")
     return best
 
+async def _genre_weights_from_profile(session: AsyncSession, user_id: int) -> dict[int, float]:
+    profile = (await session.execute(select(TasteProfile).where(TasteProfile.user_id == user_id))).scalar_one_or_none()
+    if profile is None:
+        return {}
+    weights = profile.weights_json or {}
+    likes = weights.get("likes", {})
+    genres = likes.get("genres", [])
+    out: dict[int, float] = {}
+    if isinstance(genres, list):
+        for g in genres:
+            if not isinstance(g, dict):
+                continue
+            gid = g.get("id")
+            score = g.get("score")
+            if isinstance(gid, int) and isinstance(score, (int, float)):
+                out[int(gid)] = float(score)
+    return out
 
 async def recommend_v0(
     session: AsyncSession,
@@ -233,7 +252,9 @@ async def recommend_v0(
     recent_recs = await get_recent_recommended_tmdb_ids(session, user_id, days=recent_days)
 
     # 3) жанровые предпочтения по seed (через details payload, кешируется)
-    genre_weights = await _build_genre_preferences(session, seed_tmdb_ids[: min(len(seed_tmdb_ids), 50)])
+    genre_weights = await _genre_weights_from_profile(session, user_id)
+    if not genre_weights:
+        genre_weights = await _build_genre_preferences(session, seed_tmdb_ids[: min(len(seed_tmdb_ids), 50)])
 
     # 4) собрать пул кандидатов similar/recommendations
     sem = asyncio.Semaphore(8)  # ограничиваем параллелизм, чтобы не упереться в лимиты

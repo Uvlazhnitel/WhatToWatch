@@ -1,4 +1,5 @@
 from __future__ import annotations
+from pgvector.sqlalchemy import VECTOR
 
 from datetime import date, datetime
 from typing import Optional, List
@@ -191,4 +192,70 @@ class PendingAction(Base):
             "action_type IN ('awaiting_movie_query','awaiting_movie_pick','awaiting_review','awaiting_rating')",
             name="chk_pending_action_type",
         ),
+    )
+
+class TextEmbedding(Base):
+    __tablename__ = "text_embeddings"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    # review | film_meta | profile
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    # review -> watched_films.id
+    # film_meta -> tmdb_id
+    # profile -> users.id (или taste_profile.user_id)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    # фиксируем размер вектора под выбранную модель/размерность
+    embedding: Mapped[list[float]] = mapped_column(VECTOR(1536), nullable=False)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('review','film_meta','profile')",
+            name="chk_text_embeddings_source_type",
+        ),
+        Index("ux_text_embeddings_user_source", "user_id", "source_type", "source_id", unique=True),
+        Index("ix_text_embeddings_user_type", "user_id", "source_type"),
+    )
+
+
+class EmbeddingJob(Base):
+    __tablename__ = "embedding_jobs"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True)
+    user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), nullable=False)
+
+    source_type: Mapped[str] = mapped_column(String(32), nullable=False)
+    source_id: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    content_text: Mapped[str] = mapped_column(Text, nullable=False)
+
+    model: Mapped[str] = mapped_column(String(128), nullable=False)
+    dimensions: Mapped[int] = mapped_column(Integer, nullable=False)
+
+    status: Mapped[str] = mapped_column(String(16), nullable=False, server_default="pending")
+    attempts: Mapped[int] = mapped_column(Integer, nullable=False, server_default="0")
+    last_error: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    locked_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
+
+    __table_args__ = (
+        CheckConstraint(
+            "source_type IN ('review','film_meta','profile')",
+            name="chk_embedding_jobs_source_type",
+        ),
+        CheckConstraint(
+            "status IN ('pending','processing','done','failed')",
+            name="chk_embedding_jobs_status",
+        ),
+        Index("ux_embedding_jobs_user_source", "user_id", "source_type", "source_id", unique=True),
+        Index("ix_embedding_jobs_status", "status"),
     )

@@ -9,7 +9,8 @@ from aiogram.types import Message, CallbackQuery
 
 from app.db.session import AsyncSessionLocal, AsyncSession
 from app.db.repositories.pending import set_pending, get_pending, clear_pending
-from app.db.repositories.watched import insert_watched
+from app.db.repositories.watched import upsert_watched
+from app.recommender.taste_profile_v0 import update_taste_profile_v0
 from app.db.repositories.recommendations import (
     create_recommendation,
     add_recommendation_item,
@@ -358,7 +359,7 @@ async def _save_review(
     else:
         source = "manual"
 
-    await insert_watched(
+    await upsert_watched(
         session=session,
         user_id=user.id,
         tmdb_id=tmdb_id,
@@ -369,3 +370,7 @@ async def _save_review(
         watched_date=watched_date,
         source=source,
     )
+
+    await update_taste_profile_v0(session=session, user_id=user.id)
+
+
