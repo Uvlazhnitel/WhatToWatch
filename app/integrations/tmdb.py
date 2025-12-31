@@ -10,14 +10,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.exceptions import TMDBError
 from app.db.models import TmdbMovieDetailsCache, TmdbMovieKeywordsCache
 
 
 CACHE_TTL_DAYS = 30
-
-
-class TMDBError(RuntimeError):
-    """Ошибки TMDB интеграции (сеть, невалидный ответ, 401 и т.д.)."""
 
 
 def _utcnow() -> datetime:
