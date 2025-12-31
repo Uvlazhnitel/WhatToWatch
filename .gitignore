@@ -26,8 +26,6 @@ wheels/
 MANIFEST
 
 # PyInstaller
-#  Usually these files are written by a python script from a template
-#  before PyInstaller builds the exe, so as to inject date/other infos into it.
 *.manifest
 *.spec
 
@@ -54,16 +52,16 @@ cover/
 *.mo
 *.pot
 
-# Django stuff:
+# Django stuff
 *.log
 local_settings.py
 db.sqlite3
 
-# Flask stuff:
+# Flask stuff
 instance/
 .webassets-cache
 
-# Scrapy stuff:
+# Scrapy stuff
 .scrapy
 
 # Sphinx documentation
@@ -85,10 +83,9 @@ ipython_config.py
 .python-version
 
 # pipenv
-# Ignore virtual environment directories created by Pipenv
 pipenv-*
 
-# PEP 582; used by e.g. github.com/David-OConnor/pyflow
+# PEP 582
 __pypackages__/
 
 # Celery stuff
@@ -134,19 +131,16 @@ cython_debug/
 # VS Code settings
 .vscode/
 
+# JetBrains IDEs
+.idea/
+
 # macOS files
 .DS_Store
 .AppleDouble
 .LSOverride
-
-# Thumbnails
 ._*
-
-# macOS folder attributes
 .Spotlight-V100
 .Trashes
-
-# macOS filesystem metadata
 .VolumeIcon.icns
 .com.apple.timemachine.donotpresent
 .AppleDB
@@ -160,11 +154,7 @@ Thumbs.db
 ehthumbs.db
 Desktop.ini
 $RECYCLE.BIN/
-
-# Windows image file caches
 *.stackdump
-
-# Windows Installer files
 *.cab
 *.msi
 *.msm
@@ -179,8 +169,7 @@ $RECYCLE.BIN/
 *.sql
 *.sqlite
 
-# Editor directories and files
-.idea/
+# Editor files
 *.sublime-workspace
 *.sublime-project
 *.swp
@@ -189,26 +178,10 @@ $RECYCLE.BIN/
 *.tmp
 *.temp
 
-.dmypy.json
-dmypy.json
-
-# Pyre type checker
-.pyre/
-
-# pytype static type analyzer
-.pytype/
-
-# Cython debug symbols
-cython_debug/
-
-# VS Code settings
-.vscode/
-
-# macOS files
-.DS_Store
-.AppleDouble
-.LSOverride
-
-# Custom files
+# Custom project files
 watched_with_ratings.csv
 unresolved.csv
+alembic.ini.backup
+
+# Ruff cache
+.ruff_cache/

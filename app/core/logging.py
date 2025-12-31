@@ -13,6 +13,6 @@ def setup_logging() -> None:
         stream=sys.stdout,
     )
 
-    # подавим шум
+    # Suppress noise from verbose libraries
     logging.getLogger("aiogram").setLevel(logging.INFO)
     logging.getLogger("asyncio").setLevel(logging.WARNING)

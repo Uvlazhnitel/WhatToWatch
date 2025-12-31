@@ -10,14 +10,11 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.config import settings
+from app.core.exceptions import TMDBError
 from app.db.models import TmdbMovieDetailsCache, TmdbMovieKeywordsCache
 
 
 CACHE_TTL_DAYS = 30
-
-
-class TMDBError(RuntimeError):
-    """Ошибки TMDB интеграции (сеть, невалидный ответ, 401 и т.д.)."""
 
 
 def _utcnow() -> datetime:
@@ -36,7 +33,7 @@ def _safe_int(value: Any) -> Optional[int]:
 
 
 def _extract_year(release_date: Optional[str]) -> Optional[int]:
-    # TMDB отдаёт release_date как "YYYY-MM-DD"
+    # TMDB returns release_date as "YYYY-MM-DD"
     if not release_date:
         return None
     if len(release_date) >= 4 and release_date[:4].isdigit():
@@ -67,8 +64,8 @@ class MovieDetails:
 
 async def _tmdb_get(path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """
-    Низкоуровневый GET к TMDB.
-    Использует v3 API key (query param api_key).
+    Low-level GET request to TMDB with retry logic.
+    Uses v3 API key (query param api_key).
     """
     if not settings.tmdb_api_key or settings.tmdb_api_key == "PUT_YOUR_TMDB_KEY_HERE":
         raise TMDBError("TMDB_API_KEY is not set. Put it into .env")
@@ -78,28 +75,47 @@ async def _tmdb_get(path: str, params: Optional[dict[str, Any]] = None) -> dict[
     final_params.setdefault("language", settings.tmdb_language)
 
     timeout = httpx.Timeout(10.0, connect=10.0)
-    async with httpx.AsyncClient(base_url=settings.tmdb_base_url, timeout=timeout) as client:
+    max_retries = 3
+    last_error = None
+    
+    for attempt in range(1, max_retries + 1):
         try:
-            resp = await client.get(path, params=final_params)
+            async with httpx.AsyncClient(base_url=settings.tmdb_base_url, timeout=timeout) as client:
+                resp = await client.get(path, params=final_params)
+            
+            if resp.status_code == 401:
+                raise TMDBError("TMDB 401 Unauthorized: check TMDB_API_KEY")
+            if resp.status_code == 404:
+                raise TMDBError(f"TMDB 404 Not Found: {path}")
+            if resp.status_code == 429:
+                # Rate limit - wait and retry
+                if attempt < max_retries:
+                    import asyncio
+                    await asyncio.sleep(1.0 * attempt)
+                    continue
+                raise TMDBError("TMDB rate limit exceeded")
+            if resp.status_code >= 400:
+                raise TMDBError(f"TMDB HTTP {resp.status_code}: {resp.text[:300]}")
+            
+            try:
+                data = resp.json()
+            except ValueError as e:
+                raise TMDBError("TMDB invalid JSON response") from e
+            
+            if not isinstance(data, dict):
+                raise TMDBError("TMDB response is not a JSON object")
+            
+            return data
+            
         except httpx.HTTPError as e:
-            raise TMDBError(f"TMDB network error: {e!r}") from e
-
-    if resp.status_code == 401:
-        raise TMDBError("TMDB 401 Unauthorized: check TMDB_API_KEY")
-    if resp.status_code == 404:
-        raise TMDBError(f"TMDB 404 Not Found: {path}")
-    if resp.status_code >= 400:
-        raise TMDBError(f"TMDB HTTP {resp.status_code}: {resp.text[:300]}")
-
-    try:
-        data = resp.json()
-    except ValueError as e:
-        raise TMDBError("TMDB invalid JSON response") from e
-
-    if not isinstance(data, dict):
-        raise TMDBError("TMDB response is not a JSON object")
-
-    return data
+            last_error = e
+            if attempt < max_retries:
+                import asyncio
+                await asyncio.sleep(0.5 * attempt)
+                continue
+            raise TMDBError(f"TMDB network error after {max_retries} attempts: {e!r}") from e
+    
+    raise TMDBError(f"TMDB request failed after {max_retries} attempts") from last_error
 
 
 # -------------------------

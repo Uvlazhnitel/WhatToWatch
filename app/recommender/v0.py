@@ -15,7 +15,7 @@ from app.db.repositories.recs_sources import (
     get_recent_recommended_tmdb_ids,
 )
 
-# ВАЖНО: импортируем модуль целиком, чтобы monkeypatch работал корректно
+# IMPORTANT: import entire module so monkeypatch works correctly in tests
 import app.integrations.tmdb as tmdb
 
 

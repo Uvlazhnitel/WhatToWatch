@@ -46,13 +46,13 @@ class WatchedFilm(Base):
     title: Mapped[str] = mapped_column(String(256), nullable=False)
     year: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
 
-    # 0..5, допускаем шаг 0.5 (Numeric(2,1) подходит: 0.0..9.9, но мы ограничим CHECK)
+    # Rating: 0..5, allows step 0.5 (Numeric(2,1) fits: 0.0..9.9, but we constrain with CHECK)
     your_rating: Mapped[Optional[float]] = mapped_column(Numeric(2, 1), nullable=True)
     your_review: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
 
     watched_date: Mapped[Optional[date]] = mapped_column(Date, nullable=True)
 
-    # letterboxd / agent / manual
+    # Source: letterboxd / agent / manual
     source: Mapped[str] = mapped_column(String(32), nullable=False, server_default="letterboxd")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -132,12 +132,12 @@ class Feedback(Base):
 class TasteProfile(Base):
     __tablename__ = "taste_profile"
 
-    # один профиль на пользователя
+    # One profile per user
     user_id: Mapped[int] = mapped_column(ForeignKey("users.id", ondelete="CASCADE"), primary_key=True)
 
     summary_text: Mapped[str] = mapped_column(Text, nullable=False, server_default="")
 
-    # предпочтения и избегания в jsonb
+    # Preferences and avoidances in jsonb
     weights_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
     avoids_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
 
@@ -173,7 +173,7 @@ class TmdbMovieKeywordsCache(Base):
 class PendingAction(Base):
     __tablename__ = "pending_actions"
 
-    # 1 активное ожидание на пользователя
+    # 1 active pending action per user
     user_id: Mapped[int] = mapped_column(
         ForeignKey("users.id", ondelete="CASCADE"),
         primary_key=True,
@@ -182,7 +182,7 @@ class PendingAction(Base):
     # awaiting_movie_query | awaiting_movie_pick | awaiting_review | awaiting_rating
     action_type: Mapped[str] = mapped_column(String(64), nullable=False)
 
-    # любая полезная нагрузка (tmdb_id, rec_item_id, draft_text и т.п.)
+    # Any useful payload (tmdb_id, rec_item_id, draft_text, etc.)
     payload_json: Mapped[dict] = mapped_column(JSONB, nullable=False, server_default="{}")
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
@@ -205,12 +205,12 @@ class TextEmbedding(Base):
     source_type: Mapped[str] = mapped_column(String(32), nullable=False)
     # review -> watched_films.id
     # film_meta -> tmdb_id
-    # profile -> users.id (или taste_profile.user_id)
+    # profile -> users.id (or taste_profile.user_id)
     source_id: Mapped[int] = mapped_column(Integer, nullable=False)
 
     content_text: Mapped[str] = mapped_column(Text, nullable=False)
 
-    # фиксируем размер вектора под выбранную модель/размерность
+    # Fixed vector size for selected model/dimensions
     embedding: Mapped[list[float]] = mapped_column(VECTOR(1536), nullable=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, server_default=func.now())
