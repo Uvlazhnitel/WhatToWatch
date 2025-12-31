@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 from zoneinfo import ZoneInfo
+import logging
 
 from aiogram import Router, F
 from aiogram.filters import Command
@@ -9,6 +10,8 @@ from aiogram.types import Message, CallbackQuery
 from app.bot.safe_send import safe_answer
 
 import re
+
+logger = logging.getLogger(__name__)
 
 from sqlalchemy import select, func
 
@@ -136,7 +139,10 @@ async def cmd_recommend(message: Message) -> None:
                 recent_days=60,
                 seeds_limit=40,
             )
-        except Exception:
+            if not picks_v1:
+                logger.info(f"v1 returned empty list for user {user.id}, falling back to v0")
+        except Exception as e:
+            logger.warning(f"v1 failed for user {user.id} with exception: {e}", exc_info=True)
             picks_v1 = []
 
         if picks_v1:
