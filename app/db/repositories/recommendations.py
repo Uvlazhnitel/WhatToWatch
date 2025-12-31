@@ -48,10 +48,8 @@ async def add_recommendation_item(
     # If insert succeeded, get the ID
     if row is not None:
         item_id = row[0]
-        await session.commit()
     else:
         # Conflict occurred, fetch the existing item
-        await session.commit()
         existing = (await session.execute(
             select(AgentRecommendationItem).where(
                 AgentRecommendationItem.recommendation_id == recommendation_id,
@@ -60,6 +58,9 @@ async def add_recommendation_item(
             )
         )).scalar_one()
         item_id = existing.id
+    
+    # Commit once at the end
+    await session.commit()
     
     # Fetch and return the complete item
     item = (await session.execute(

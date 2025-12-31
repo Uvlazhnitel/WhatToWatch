@@ -44,14 +44,14 @@ async def check_and_touch(
             index_elements=['user_id', 'command']
         )
         result = await session.execute(stmt)
-        await session.commit()
         
         # If we successfully inserted, allow the request
         if result.rowcount > 0:
+            await session.commit()
             return True, 0
         
         # If insert failed due to conflict, another request just created it
-        # Retry the check with lock
+        # Retry the check with lock (don't commit yet, we need to check timing)
         row = (await session.execute(
             select(CommandRateLimit)
             .where(
@@ -63,13 +63,14 @@ async def check_and_touch(
         
         if row is None:
             # Very unlikely, but handle it gracefully
+            await session.commit()
             return True, 0
 
     # Check if enough time has passed
     delta = now - row.last_used_at
     if delta < timedelta(seconds=interval_seconds):
         retry = int(interval_seconds - delta.total_seconds())
-        # Don't update the timestamp, just return False
+        # Don't update the timestamp, just return False (no need to commit)
         return False, retry
 
     # Update the timestamp and commit
