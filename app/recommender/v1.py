@@ -399,7 +399,7 @@ async def recommend_v1(
         cand_texts[tid] = row.content_text
 
     # Если эмбеддингов мало — лучше не выдавать “пустую” v1
-    if len(cand_vecs) < max(30, count * 5):
+    if len(cand_vecs) < max(10, count * 2):
         # Можно fallback на v0, но тут вернём пусто, чтобы бот вызвал v0 сам.
         return []
 
