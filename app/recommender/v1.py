@@ -1,10 +1,9 @@
 from __future__ import annotations
 
 import asyncio
-import re
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
-from typing import Optional
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +13,7 @@ from app.db.repositories.recs_sources import (
     get_top_rated_tmdb_ids,
     get_fallback_top_tmdb_ids,
     get_watched_tmdb_ids,
-    get_recent_recommended_tmdb_ids as get_recent_recommended_tmdb_ids_set,  # из этапа 6, set-версия
+    get_recent_recommended_tmdb_ids as get_recent_recommended_tmdb_ids_set,  # set-версия
 )
 from app.db.repositories.recs_context import get_recent_recommended_tmdb_ids, get_recent_watched_tmdb_ids
 from app.db.repositories.embeddings import get_film_meta_embeddings, get_review_embeddings_by_watched_ids
@@ -27,6 +26,8 @@ from app.integrations.tmdb import (
     TMDBError,
 )
 from app.recommender.vector_math import cosine_similarity, weighted_average
+
+logger = logging.getLogger("recommender.v1")
 
 
 @dataclass(frozen=True)
@@ -74,16 +75,54 @@ def _extract_genre_ids(payload: dict) -> list[int]:
     return out
 
 
+def _build_text_for_soft_avoid(payload: dict) -> str:
+    """
+    Не тянем content_text из БД — собираем текст прямо из TMDB payload:
+    overview + title + genres + keywords (если есть).
+    """
+    parts: list[str] = []
+    title = payload.get("title") or payload.get("original_title") or ""
+    overview = payload.get("overview") or ""
+    if isinstance(title, str) and title:
+        parts.append(title)
+    if isinstance(overview, str) and overview:
+        parts.append(overview)
+
+    # genres: list[dict{id,name}]
+    genres = payload.get("genres", [])
+    if isinstance(genres, list):
+        gnames = []
+        for g in genres:
+            if isinstance(g, dict) and isinstance(g.get("name"), str):
+                gnames.append(g["name"])
+        if gnames:
+            parts.append("genres: " + ", ".join(gnames))
+
+    # keywords: может быть list[str] или list[dict{name}]
+    keywords = payload.get("keywords", [])
+    if isinstance(keywords, list):
+        knames = []
+        for k in keywords:
+            if isinstance(k, str):
+                knames.append(k)
+            elif isinstance(k, dict) and isinstance(k.get("name"), str):
+                knames.append(k["name"])
+        if knames:
+            parts.append("keywords: " + ", ".join(knames[:25]))
+
+    return "\n".join(parts)
+
+
 def _soft_avoid_penalty(content_text: str, avoids_json: dict) -> tuple[float, list[str]]:
     """
-    Простой и надёжный v1: penalty по ключевым словам в film_meta content_text.
-    avoids_json["patterns"] -> list.
+    penalty по ключевым словам.
+    avoids_json["patterns"] -> list[ {id, confidence, weight(<0), cooldown_days, last_triggered, keywords[]} ]
     """
     if not avoids_json or not isinstance(avoids_json, dict):
         return 0.0, []
 
     patterns = avoids_json.get("patterns", [])
-    if not isinstance(patterns, list) or not content_text:
+    if not isinstance(patterns, list) or not patterns or not content_text:
         return 0.0, []
 
     now = datetime.now(timezone.utc)
@@ -96,11 +135,13 @@ def _soft_avoid_penalty(content_text: str, avoids_json: dict) -> tuple[float, li
         if not isinstance(p, dict):
             continue
 
-        pid = str(p.get("id", ""))
+        pid = str(p.get("id", "")).strip()
         conf = float(p.get("confidence", 0.0) or 0.0)
-        weight = float(p.get("weight", 0.0) or 0.0)  # отрицательный
+        weight = float(p.get("weight", 0.0) or 0.0)  # ожидаем отрицательный
         cooldown_days = int(p.get("cooldown_days", 14) or 14)
 
+        if not pid:
+            continue
         if conf < 0.6:
             continue
         if weight >= 0:
@@ -131,19 +172,13 @@ def _soft_avoid_penalty(content_text: str, avoids_json: dict) -> tuple[float, li
                 break
 
         if hit:
-            total_penalty += (-weight)  # превращаем в положительный penalty
+            total_penalty += (-weight)  # делаем положительный penalty
             triggered.append(pid)
 
     return total_penalty, triggered
 
 
 def _assign_strategy(sim_like: float, novelty: float) -> str:
-    """
-    Простой биннинг:
-    - safe: высокая похожесть на likes
-    - adjacent: средняя похожесть или высокая novelty
-    - wildcard: низкая похожесть, но прошёл фильтры
-    """
     if sim_like >= 0.32:
         return "safe"
     if sim_like >= 0.22 or novelty >= 0.65:
@@ -157,9 +192,6 @@ def _mmr_select(
     k: int,
     lambda_relevance: float = 0.75,
 ) -> list[V1CandidateScore]:
-    """
-    MMR: выбираем разнообразный топ.
-    """
     if not scored:
         return []
 
@@ -182,7 +214,6 @@ def _mmr_select(
         for idx, cand in enumerate(remaining):
             v = vecs.get(cand.tmdb_id)
             if not v:
-                # без вектора хуже диверсифицировать — пусть будет чуть штраф
                 redundancy = 0.2
             else:
                 redundancy = 0.0
@@ -203,6 +234,7 @@ def _mmr_select(
         best = remaining.pop(best_idx)
         if best.tmdb_id in selected_ids:
             continue
+
         selected.append(best)
         selected_ids.add(best.tmdb_id)
 
@@ -235,7 +267,6 @@ def _dedupe_pool(pool: list[MovieCandidate]) -> dict[int, MovieCandidate]:
         if c.tmdb_id not in by_id:
             by_id[c.tmdb_id] = c
         else:
-            # оставим с большей vote_average/popularity (простая эвристика)
             cur = by_id[c.tmdb_id]
             cur_q = (cur.vote_average or 0) + (cur.popularity or 0) / 100
             new_q = (c.vote_average or 0) + (c.popularity or 0) / 100
@@ -252,11 +283,16 @@ async def _build_like_dislike_vectors(
     max_films: int = 200,
 ) -> tuple[list[float] | None, list[float] | None]:
     """
-    Пытаемся использовать review embeddings (они отражают твою интерпретацию).
-    Если review нет — используем film_meta.
+    Берём фильмы с оценками:
+    - likes: rating >= like_thr
+    - dislikes: rating <= dislike_thr
+
+    Предпочтение:
+    - review embeddings (если они keyed по tmdb_id)
+    - иначе film_meta embeddings
     """
     stmt = (
-        select(WatchedFilm.id, WatchedFilm.tmdb_id, WatchedFilm.your_rating)
+        select(WatchedFilm.tmdb_id, WatchedFilm.your_rating)
         .where(WatchedFilm.user_id == user_id)
         .where(WatchedFilm.your_rating.is_not(None))
         .order_by(WatchedFilm.watched_date.desc().nullslast(), WatchedFilm.id.desc())
@@ -264,37 +300,35 @@ async def _build_like_dislike_vectors(
     )
     rows = (await session.execute(stmt)).all()
 
-    liked_watched_ids = [int(wid) for wid, _, r in rows if float(r) >= like_thr]
-    disliked_watched_ids = [int(wid) for wid, _, r in rows if float(r) <= dislike_thr]
+    liked_tmdb_ids = [int(tid) for (tid, r) in rows if tid is not None and float(r) >= like_thr]
+    disliked_tmdb_ids = [int(tid) for (tid, r) in rows if tid is not None and float(r) <= dislike_thr]
 
-    liked_tmdb_ids = [int(tid) for _, tid, r in rows if float(r) >= like_thr]
-    disliked_tmdb_ids = [int(tid) for _, tid, r in rows if float(r) <= dislike_thr]
-
-    review_like = await get_review_embeddings_by_watched_ids(session, user_id, liked_watched_ids)
-    review_dislike = await get_review_embeddings_by_watched_ids(session, user_id, disliked_watched_ids)
+    # review embeddings (если source_id=tmdb_id)
+    review_like = await get_review_embeddings_by_watched_ids(session, user_id, liked_tmdb_ids)
+    review_dislike = await get_review_embeddings_by_watched_ids(session, user_id, disliked_tmdb_ids)
 
     film_like = await get_film_meta_embeddings(session, user_id, liked_tmdb_ids)
     film_dislike = await get_film_meta_embeddings(session, user_id, disliked_tmdb_ids)
 
-    like_vectors = []
-    for wid in liked_watched_ids:
-        emb = review_like.get(wid)
+    like_vectors: list[tuple[list[float], float]] = []
+    for tid in liked_tmdb_ids:
+        emb = review_like.get(tid)
         if emb is not None:
-            like_vectors.append((list(emb.embedding), 1.25))
+            like_vectors.append((list(emb), 1.25))
     for tid in liked_tmdb_ids:
         emb = film_like.get(tid)
         if emb is not None:
-            like_vectors.append((list(emb.embedding), 1.0))
+            like_vectors.append((list(emb), 1.0))
 
-    dislike_vectors = []
-    for wid in disliked_watched_ids:
-        emb = review_dislike.get(wid)
+    dislike_vectors: list[tuple[list[float], float]] = []
+    for tid in disliked_tmdb_ids:
+        emb = review_dislike.get(tid)
         if emb is not None:
-            dislike_vectors.append((list(emb.embedding), 1.25))
+            dislike_vectors.append((list(emb), 1.25))
     for tid in disliked_tmdb_ids:
         emb = film_dislike.get(tid)
         if emb is not None:
-            dislike_vectors.append((list(emb.embedding), 1.0))
+            dislike_vectors.append((list(emb), 1.0))
 
     like_vec = weighted_average(like_vectors)
     dislike_vec = weighted_average(dislike_vectors)
@@ -305,11 +339,6 @@ async def _repeat_context_counts(
     session: AsyncSession,
     tmdb_ids: list[int],
 ) -> tuple[dict[int, int], dict[int, int]]:
-    """
-    Для повторов v1 считаем частоты:
-    - жанров (genre_id)
-    - десятилетий (decade)
-    """
     genre_counts: dict[int, int] = {}
     decade_counts: dict[int, int] = {}
 
@@ -330,9 +359,6 @@ def _repeat_penalty_for_candidate(
     decade_counts: dict[int, int],
     total_context: int,
 ) -> float:
-    """
-    Чем чаще жанр/декада встречались в контексте, тем больше штраф.
-    """
     if total_context <= 0:
         return 0.0
 
@@ -340,12 +366,12 @@ def _repeat_penalty_for_candidate(
     gids = _extract_genre_ids(cand_payload)
     for gid in gids[:4]:
         freq = genre_counts.get(gid, 0) / total_context
-        penalty += 0.20 * freq  # вес жанрового повтора
+        penalty += 0.20 * freq
 
     dec = _decade_from_release_date(cand_payload.get("release_date"))
     if dec is not None:
         freq = decade_counts.get(dec, 0) / total_context
-        penalty += 0.12 * freq  # вес десятилетия
+        penalty += 0.12 * freq
 
     return _clamp(penalty, 0.0, 0.5)
 
@@ -363,6 +389,8 @@ async def recommend_v1(
         seed_tmdb_ids = await get_fallback_top_tmdb_ids(session, user_id, limit=seeds_limit)
     if not seed_tmdb_ids:
         return []
+
+    logger.info("v1 seeds=%d", len(seed_tmdb_ids))
 
     # 2) фильтры: watched + recent recs
     watched = await get_watched_tmdb_ids(session, user_id)
@@ -389,18 +417,21 @@ async def recommend_v1(
 
     candidate_ids = [c.tmdb_id for c in candidates]
 
-    # 5) вектора кандидатов + их meta-text
-    emb_rows = await get_film_meta_embeddings(session, user_id, candidate_ids)
-    cand_vecs: dict[int, list[float]] = {}
-    cand_texts: dict[int, str] = {}
+    # 5) вектора кандидатов (film_meta)
+    emb_map = await get_film_meta_embeddings(session, user_id, candidate_ids)
+    logger.info(
+        "v1 candidate_ids=%d embeddings_found=%d (user_id=%d)",
+        len(candidate_ids),
+        len(emb_map),
+        user_id,
+    )
 
-    for tid, row in emb_rows.items():
-        cand_vecs[tid] = list(row.embedding)
-        cand_texts[tid] = row.content_text
+    cand_vecs: dict[int, list[float]] = {int(tid): list(vec) for tid, vec in emb_map.items()}
 
     # Если эмбеддингов мало — лучше не выдавать “пустую” v1
-    if len(cand_vecs) < max(30, count * 5):
-        # Можно fallback на v0, но тут вернём пусто, чтобы бот вызвал v0 сам.
+    min_needed = max(10, count * 2)
+    if len(cand_vecs) < min_needed:
+        logger.warning("v1 fallback: not enough candidate embeddings (%d < %d)", len(cand_vecs), min_needed)
         return []
 
     # 6) like/dislike vectors
@@ -408,14 +439,14 @@ async def recommend_v1(
 
     # 7) novelty: сравнение с недавними рекомендациями
     recent_ids = await get_recent_recommended_tmdb_ids(session, user_id, days=recent_days, limit=150)
-    recent_emb = await get_film_meta_embeddings(session, user_id, recent_ids)
-    recent_vecs = [list(r.embedding) for r in recent_emb.values()]
+    recent_emb_map = await get_film_meta_embeddings(session, user_id, recent_ids)
+    recent_vecs = [list(v) for v in recent_emb_map.values()]
 
     # 8) repeat context: последние рекомендации + просмотры
-    context_ids = []
+    context_ids: list[int] = []
     context_ids += recent_ids[:60]
     context_ids += (await get_recent_watched_tmdb_ids(session, user_id, limit=40))
-    context_ids = list(dict.fromkeys(context_ids))[:80]  # уникальные, ограничение
+    context_ids = list(dict.fromkeys(context_ids))[:80]
 
     genre_counts, decade_counts = await _repeat_context_counts(session, context_ids)
     total_context = max(1, len(context_ids))
@@ -424,28 +455,31 @@ async def recommend_v1(
     profile = (await session.execute(select(TasteProfile).where(TasteProfile.user_id == user_id))).scalar_one_or_none()
     avoids_json = (profile.avoids_json if profile else {}) or {}
 
-    # 10) scoring формула
+    # 10) scoring
     scored: list[V1CandidateScore] = []
     for c in candidates:
         tid = c.tmdb_id
         vec = cand_vecs.get(tid)
         if not vec:
-            continue  # без film_meta embedding — пропускаем в v1
+            continue  # нет вектора => пропускаем в v1
 
         sim_like = cosine_similarity(vec, like_vec) if like_vec else 0.0
         sim_dislike = cosine_similarity(vec, dislike_vec) if dislike_vec else 0.0
 
-        # novelty = 1 - max_sim_to_recent (clamped)
+        # novelty = 1 - max_sim_to_recent
         max_sim_recent = 0.0
-        for rv in recent_vecs:
-            max_sim_recent = max(max_sim_recent, max(0.0, cosine_similarity(vec, rv)))
+        if recent_vecs:
+            for rv in recent_vecs:
+                max_sim_recent = max(max_sim_recent, max(0.0, cosine_similarity(vec, rv)))
         novelty = _clamp(1.0 - max_sim_recent, 0.0, 1.0)
 
+        # детали кандидата одним payload (используем и для repeat, и для soft-avoid текста)
         cand_payload = await get_movie_details_payload(session, tid)
+
         repeat_pen = _repeat_penalty_for_candidate(cand_payload, genre_counts, decade_counts, total_context)
 
-        text = cand_texts.get(tid, "")
-        soft_pen, triggered_ids = _soft_avoid_penalty(text, avoids_json)
+        content_text = _build_text_for_soft_avoid(cand_payload)
+        soft_pen, triggered_ids = _soft_avoid_penalty(content_text, avoids_json)
 
         base = (
             1.0 * sim_like
@@ -456,25 +490,27 @@ async def recommend_v1(
         )
 
         debug = f"like={sim_like:.3f} dislike={sim_dislike:.3f} nov={novelty:.2f} rep={repeat_pen:.2f} avoid={soft_pen:.2f}"
-        scored.append(V1CandidateScore(
-            tmdb_id=tid,
-            base_score=base,
-            sim_like=sim_like,
-            sim_dislike=sim_dislike,
-            novelty=novelty,
-            repeat_penalty=repeat_pen,
-            soft_avoid_penalty=soft_pen,
-            triggered_avoid_ids=triggered_ids,
-            debug=debug,
-        ))
+        scored.append(
+            V1CandidateScore(
+                tmdb_id=tid,
+                base_score=base,
+                sim_like=sim_like,
+                sim_dislike=sim_dislike,
+                novelty=novelty,
+                repeat_penalty=repeat_pen,
+                soft_avoid_penalty=soft_pen,
+                triggered_avoid_ids=triggered_ids,
+                debug=debug,
+            )
+        )
 
     if not scored:
         return []
 
-    # 11) MMR (диверсификация)
+    # 11) MMR
     selected = _mmr_select(scored, cand_vecs, k=count, lambda_relevance=0.75)
 
-    # 12) обновим last_triggered для avoids, если реально выбрали фильм с penalty
+    # 12) update last_triggered для avoids
     if profile and isinstance(avoids_json, dict) and "patterns" in avoids_json:
         now_iso = datetime.now(timezone.utc).isoformat().replace("+00:00", "Z")
         pats = avoids_json.get("patterns", [])
@@ -487,16 +523,18 @@ async def recommend_v1(
                 avoids_json["patterns"] = pats
                 await set_avoids_json(session, user_id, avoids_json)
 
-    # 13) стратегия (safe/adjacent/wildcard)
+    # 13) стратегия
     picks: list[RecPickV1] = []
     for s in selected:
         strategy = _assign_strategy(s.sim_like, s.novelty)
-        picks.append(RecPickV1(
-            tmdb_id=s.tmdb_id,
-            strategy=strategy,
-            score=s.base_score,
-            debug=s.debug,
-            triggered_avoid_ids=s.triggered_avoid_ids,
-        ))
+        picks.append(
+            RecPickV1(
+                tmdb_id=s.tmdb_id,
+                strategy=strategy,
+                score=s.base_score,
+                debug=s.debug,
+                triggered_avoid_ids=s.triggered_avoid_ids,
+            )
+        )
 
     return picks

@@ -54,9 +54,16 @@ async def worker_loop(poll_seconds: float = 2.0, batch_size: int = 10) -> None:
 
             except Exception as e:
                 err = f"{type(e).__name__}: {e}\n{traceback.format_exc()}"
-                # если пачка упала — пометим все как failed (можно улучшить позже)
+
+                # ВАЖНО: сбросить абортнутую транзакцию
+                await session.rollback()
+
                 for job in jobs:
-                    await mark_job_failed(session, job, err)
+                    try:
+                        await mark_job_failed(session, job, err)
+                    except Exception:
+                        await session.rollback()
+
 
         await asyncio.sleep(0)  # отдаём цикл
 

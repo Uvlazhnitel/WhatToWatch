@@ -5,7 +5,14 @@ from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.db.models import EmbeddingJob, TextEmbedding
+from typing import Dict, List
 
+from typing import Dict, Iterable, List, Tuple
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.db.models import TextEmbedding
 
 async def enqueue_embedding_job(
     session: AsyncSession,
@@ -104,3 +111,59 @@ async def mark_job_failed(session: AsyncSession, job: EmbeddingJob, err: str) ->
     job.status = "failed"
     job.last_error = err[:4000]
     await session.commit()
+
+
+async def get_film_meta_embeddings(
+    session: AsyncSession,
+    user_id: int,
+    tmdb_ids: List[int],
+) -> Dict[int, List[float]]:
+    if not tmdb_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            select(TextEmbedding.source_id, TextEmbedding.embedding)
+            .where(TextEmbedding.user_id == user_id)
+            .where(TextEmbedding.source_type == "film_meta")
+            .where(TextEmbedding.source_id.in_(tmdb_ids))
+        )
+    ).all()
+
+    return {int(source_id): list(emb) for (source_id, emb) in rows}
+
+
+async def get_review_embeddings_by_watched_ids(
+    session: AsyncSession,
+    user_id: int,
+    watched_tmdb_ids: List[int],
+) -> Dict[int, List[float]]:
+    if not watched_tmdb_ids:
+        return {}
+
+    rows = (
+        await session.execute(
+            select(TextEmbedding.source_id, TextEmbedding.embedding)
+            .where(TextEmbedding.user_id == user_id)
+            .where(TextEmbedding.source_type == "review")
+            .where(TextEmbedding.source_id.in_(watched_tmdb_ids))
+        )
+    ).all()
+
+    return {int(source_id): list(emb) for (source_id, emb) in rows}
+
+async def get_best_review_embeddings(
+    session: AsyncSession,
+    user_id: int,
+    limit: int = 50,
+) -> List[list[float]]:
+    rows = (
+        await session.execute(
+            select(TextEmbedding.embedding)
+            .where(TextEmbedding.user_id == user_id)
+            .where(TextEmbedding.source_type == "review")
+            .order_by(TextEmbedding.id.desc())
+            .limit(limit)
+        )
+    ).all()
+    return [list(r[0]) for r in rows]

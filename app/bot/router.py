@@ -7,6 +7,7 @@ from aiogram import Router, F
 from aiogram.filters import Command
 from aiogram.types import Message, CallbackQuery
 from app.bot.safe_send import safe_answer
+import logging
 
 import re
 
@@ -24,6 +25,7 @@ from app.bot.keyboards import movie_pick_keyboard, rec_item_keyboard
 from app.integrations.tmdb import search_movie, get_movie_details, get_movie_keywords, TMDBError
 from app.bot.parsing import parse_rating_from_text, parse_title_and_year
 from app.db.models import TasteProfile, WatchedFilm, TextEmbedding
+logger = logging.getLogger(__name__)
 
 router = Router()
 
@@ -137,6 +139,7 @@ async def cmd_recommend(message: Message) -> None:
                 seeds_limit=40,
             )
         except Exception:
+            logger.exception("recommend_v1 crashed (user_id=%s)", user.id)
             picks_v1 = []
 
         if picks_v1:
