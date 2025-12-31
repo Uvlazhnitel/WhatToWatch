@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import re
+import logging
 from dataclasses import dataclass
 from datetime import datetime, timezone, timedelta
 from typing import Optional
@@ -27,6 +28,8 @@ from app.integrations.tmdb import (
     TMDBError,
 )
 from app.recommender.vector_math import cosine_similarity, weighted_average
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -362,6 +365,7 @@ async def recommend_v1(
     if len(seed_tmdb_ids) < 10:
         seed_tmdb_ids = await get_fallback_top_tmdb_ids(session, user_id, limit=seeds_limit)
     if not seed_tmdb_ids:
+        logger.info(f"v1: user {user_id} has no seeds, returning empty")
         return []
 
     # 2) фильтры: watched + recent recs
@@ -385,6 +389,7 @@ async def recommend_v1(
         candidates.append(c)
 
     if not candidates:
+        logger.info(f"v1: user {user_id} has no candidates after filtering, returning empty")
         return []
 
     candidate_ids = [c.tmdb_id for c in candidates]
@@ -401,6 +406,7 @@ async def recommend_v1(
     # Если эмбеддингов мало — лучше не выдавать “пустую” v1
     if len(cand_vecs) < max(10, count * 2):
         # Можно fallback на v0, но тут вернём пусто, чтобы бот вызвал v0 сам.
+        logger.info(f"v1: user {user_id} has only {len(cand_vecs)} embeddings (need {max(10, count * 2)}), returning empty")
         return []
 
     # 6) like/dislike vectors
@@ -469,6 +475,7 @@ async def recommend_v1(
         ))
 
     if not scored:
+        logger.info(f"v1: user {user_id} has no scored candidates after filtering, returning empty")
         return []
 
     # 11) MMR (диверсификация)
@@ -499,4 +506,5 @@ async def recommend_v1(
             triggered_avoid_ids=s.triggered_avoid_ids,
         ))
 
+    logger.info(f"v1: user {user_id} successfully generated {len(picks)} recommendations")
     return picks
