@@ -23,17 +23,49 @@ async def add_recommendation_item(
     strategy: str,
     explanation_shown: str | None = None,
 ) -> AgentRecommendationItem:
-    item = AgentRecommendationItem(
+    """
+    Add a recommendation item, handling duplicate inserts gracefully.
+    
+    Uses upsert logic to prevent duplicates when the same recommendation
+    is processed concurrently. The unique constraint on 
+    (recommendation_id, tmdb_id, position) prevents duplicate entries.
+    """
+    # Try to insert, but if conflict occurs (duplicate), do nothing and return existing
+    stmt = insert(AgentRecommendationItem).values(
         recommendation_id=recommendation_id,
         tmdb_id=tmdb_id,
         position=position,
         strategy=strategy,
         status="suggested",
         explanation_shown=explanation_shown,
-    )
-    session.add(item)
-    await session.commit()
-    await session.refresh(item)
+    ).on_conflict_do_nothing(
+        index_elements=['recommendation_id', 'tmdb_id', 'position']
+    ).returning(AgentRecommendationItem.id)
+    
+    result = await session.execute(stmt)
+    row = result.fetchone()
+    
+    # If insert succeeded, get the ID
+    if row is not None:
+        item_id = row[0]
+        await session.commit()
+    else:
+        # Conflict occurred, fetch the existing item
+        await session.commit()
+        existing = (await session.execute(
+            select(AgentRecommendationItem).where(
+                AgentRecommendationItem.recommendation_id == recommendation_id,
+                AgentRecommendationItem.tmdb_id == tmdb_id,
+                AgentRecommendationItem.position == position,
+            )
+        )).scalar_one()
+        item_id = existing.id
+    
+    # Fetch and return the complete item
+    item = (await session.execute(
+        select(AgentRecommendationItem).where(AgentRecommendationItem.id == item_id)
+    )).scalar_one()
+    
     return item
 
 

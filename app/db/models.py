@@ -102,6 +102,7 @@ class AgentRecommendationItem(Base):
         CheckConstraint("strategy IN ('safe','adjacent','wildcard')", name="chk_item_strategy"),
         CheckConstraint("status IN ('suggested','watched','skipped')", name="chk_item_status"),
         Index("ix_rec_items_recid_pos", "recommendation_id", "position"),
+        Index("uq_rec_items_recommendation_tmdb_position", "recommendation_id", "tmdb_id", "position", unique=True),
     )
 
 
