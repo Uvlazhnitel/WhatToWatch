@@ -14,7 +14,7 @@ from app.db.repositories.recs_sources import (
     get_top_rated_tmdb_ids,
     get_fallback_top_tmdb_ids,
     get_watched_tmdb_ids,
-    get_recent_recommended_tmdb_ids as get_recent_recommended_tmdb_ids_set,  # из этапа 6, set-версия
+    get_recent_recommended_tmdb_ids as get_recent_recommended_tmdb_ids_set,  # from step 6, set version
 )
 from app.db.repositories.recs_context import get_recent_recommended_tmdb_ids, get_recent_watched_tmdb_ids
 from app.db.repositories.embeddings import get_film_meta_embeddings, get_review_embeddings_by_watched_ids
@@ -98,7 +98,7 @@ def _soft_avoid_penalty(content_text: str, avoids_json: dict) -> tuple[float, li
 
         pid = str(p.get("id", ""))
         conf = float(p.get("confidence", 0.0) or 0.0)
-        weight = float(p.get("weight", 0.0) or 0.0)  # отрицательный
+        weight = float(p.get("weight", 0.0) or 0.0)  # negative value
         cooldown_days = int(p.get("cooldown_days", 14) or 14)
 
         if conf < 0.6:
@@ -131,7 +131,7 @@ def _soft_avoid_penalty(content_text: str, avoids_json: dict) -> tuple[float, li
                 break
 
         if hit:
-            total_penalty += (-weight)  # превращаем в положительный penalty
+            total_penalty += (-weight)  # convert to positive penalty
             triggered.append(pid)
 
     return total_penalty, triggered
@@ -182,7 +182,7 @@ def _mmr_select(
         for idx, cand in enumerate(remaining):
             v = vecs.get(cand.tmdb_id)
             if not v:
-                # без вектора хуже диверсифицировать — пусть будет чуть штраф
+                # Without vector, harder to diversify — apply small penalty
                 redundancy = 0.2
             else:
                 redundancy = 0.0
@@ -235,7 +235,7 @@ def _dedupe_pool(pool: list[MovieCandidate]) -> dict[int, MovieCandidate]:
         if c.tmdb_id not in by_id:
             by_id[c.tmdb_id] = c
         else:
-            # оставим с большей vote_average/popularity (простая эвристика)
+            # Keep the one with higher vote_average/popularity (simple heuristic)
             cur = by_id[c.tmdb_id]
             cur_q = (cur.vote_average or 0) + (cur.popularity or 0) / 100
             new_q = (c.vote_average or 0) + (c.popularity or 0) / 100
@@ -340,12 +340,12 @@ def _repeat_penalty_for_candidate(
     gids = _extract_genre_ids(cand_payload)
     for gid in gids[:4]:
         freq = genre_counts.get(gid, 0) / total_context
-        penalty += 0.20 * freq  # вес жанрового повтора
+        penalty += 0.20 * freq  # weight for genre repetition
 
     dec = _decade_from_release_date(cand_payload.get("release_date"))
     if dec is not None:
         freq = decade_counts.get(dec, 0) / total_context
-        penalty += 0.12 * freq  # вес десятилетия
+        penalty += 0.12 * freq  # weight for decade
 
     return _clamp(penalty, 0.0, 0.5)
 
@@ -364,11 +364,11 @@ async def recommend_v1(
     if not seed_tmdb_ids:
         return []
 
-    # 2) фильтры: watched + recent recs
+    # 2) filters: watched + recent recs
     watched = await get_watched_tmdb_ids(session, user_id)
     recent_recs_set = await get_recent_recommended_tmdb_ids_set(session, user_id, days=recent_days)
 
-    # 3) пул кандидатов из similar/recommendations
+    # 3) candidate pool from similar/recommendations
     pool = await _fetch_candidates_pool(seed_tmdb_ids[: min(30, len(seed_tmdb_ids))])
     by_id = _dedupe_pool(pool)
 

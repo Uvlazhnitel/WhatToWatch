@@ -33,7 +33,7 @@ def _safe_int(value: Any) -> Optional[int]:
 
 
 def _extract_year(release_date: Optional[str]) -> Optional[int]:
-    # TMDB отдаёт release_date как "YYYY-MM-DD"
+    # TMDB returns release_date as "YYYY-MM-DD"
     if not release_date:
         return None
     if len(release_date) >= 4 and release_date[:4].isdigit():
@@ -64,8 +64,8 @@ class MovieDetails:
 
 async def _tmdb_get(path: str, params: Optional[dict[str, Any]] = None) -> dict[str, Any]:
     """
-    Низкоуровневый GET к TMDB с retry logic.
-    Использует v3 API key (query param api_key).
+    Low-level GET request to TMDB with retry logic.
+    Uses v3 API key (query param api_key).
     """
     if not settings.tmdb_api_key or settings.tmdb_api_key == "PUT_YOUR_TMDB_KEY_HERE":
         raise TMDBError("TMDB_API_KEY is not set. Put it into .env")
