@@ -179,12 +179,11 @@ def _soft_avoid_penalty(content_text: str, avoids_json: dict) -> tuple[float, li
 
 
 def _assign_strategy(sim_like: float, novelty: float) -> str:
-    if sim_like >= 0.32:
+    if sim_like >= 0.45:
         return "safe"
-    if sim_like >= 0.22 or novelty >= 0.65:
+    if sim_like >= 0.30 or novelty >=70:
         return "adjacent"
     return "wildcard"
-
 
 def _mmr_select(
     scored: list[V1CandidateScore],

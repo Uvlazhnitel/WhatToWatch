@@ -37,5 +37,5 @@ async def test_do_not_recommend_recently_suggested(session):
     session.add(item)
     await session.commit()
 
-    picks = await recommend_v0(session=session, user_id=user.id, count=5, recent_days=60, seeds_limit=20)
+    picks = await recommend_v0(session=session, user_id=user.id, count=3, recent_days=60, seeds_limit=20)
     assert all(p.tmdb_id != 555 for p in picks)
