@@ -406,7 +406,8 @@ async def recommend_v1(
     # Если эмбеддингов мало — лучше не выдавать “пустую” v1
     if len(cand_vecs) < max(10, count * 2):
         # Можно fallback на v0, но тут вернём пусто, чтобы бот вызвал v0 сам.
-        logger.info(f"v1: user {user_id} has only {len(cand_vecs)} embeddings (need {max(10, count * 2)}), returning empty")
+        min_embeddings = max(10, count * 2)
+        logger.info(f"v1: user {user_id} has only {len(cand_vecs)} embeddings (need {min_embeddings}), returning empty")
         return []
 
     # 6) like/dislike vectors
